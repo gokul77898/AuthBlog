@@ -21,10 +21,9 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-// Dummy function to simulate saving a post. In a real app, this would interact with a backend.
-import type { Post } from "@/lib/types";
-import { samplePosts } from "@/lib/posts-data";
-
+import type { Post, PostAuthor } from "@/lib/types"; // Updated Post type import
+import { db } from '@/lib/firebase';
+import { collection, addDoc, Timestamp } from 'firebase/firestore';
 
 const postFormSchema = z.object({
   title: z.string().min(5, {
@@ -37,22 +36,30 @@ const postFormSchema = z.object({
   }).max(5000, {
     message: "Content must not exceed 5000 characters."
   }),
+  // imageUrl: z.string().url({ message: "Please enter a valid URL." }).optional(), // Example if you add an image URL field
 });
 
 type PostFormValues = z.infer<typeof postFormSchema>;
 
-// This is a mock function. In a real app, you'd save to a database.
-async function savePost(postData: Omit<Post, 'id' | 'createdAt' | 'author'> & { author: { id: string; name: string } }): Promise<Post> {
-  console.log("Saving post:", postData);
-  await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
-  const newPost: Post = {
-    ...postData,
-    id: String(Date.now()), // Simple unique ID
-    createdAt: new Date(),
-  };
-  // For demo, add to samplePosts array (this won't persist across reloads or for other users)
-  samplePosts.unshift(newPost);
-  return newPost;
+interface SavePostData {
+  title: string;
+  content: string;
+  author: PostAuthor;
+  imageUrl?: string;
+}
+
+async function savePostToFirestore(postData: SavePostData): Promise<string> {
+  console.log("Saving post to Firestore:", postData);
+  try {
+    const docRef = await addDoc(collection(db, "posts"), {
+      ...postData,
+      createdAt: Timestamp.fromDate(new Date()),
+    });
+    return docRef.id;
+  } catch (e) {
+    console.error("Error adding document: ", e);
+    throw new Error("Failed to save post to Firestore");
+  }
 }
 
 
@@ -78,17 +85,18 @@ export function PostForm() {
     }
     setIsSubmitting(true);
     try {
-      const newPostData = {
+      const newPostData: SavePostData = {
         title: data.title,
         content: data.content,
         author: { id: currentUser.id, name: currentUser.name },
+        imageUrl: `https://placehold.co/600x400.png?text=${encodeURIComponent(data.title.substring(0,20))}`, // Default placeholder
       };
-      await savePost(newPostData); // Call mock save function
+      await savePostToFirestore(newPostData);
       toast({
         title: "Post Created!",
         description: "Your new blog post has been successfully created.",
       });
-      router.push('/'); // Redirect to home page after successful post creation
+      router.push('/'); 
     } catch (error) {
       toast({
         title: "Error Creating Post",
@@ -134,12 +142,31 @@ export function PostForm() {
                 />
               </FormControl>
               <FormDescription>
-                Use Markdown for formatting if desired (actual rendering not implemented in this demo).
+                Your main blog content. Markdown is not currently rendered.
               </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
+        {/* 
+        // Example if you add an image URL field to the form:
+        <FormField
+          control={form.control}
+          name="imageUrl"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-lg">Image URL (Optional)</FormLabel>
+              <FormControl>
+                <Input placeholder="https://example.com/image.png" {...field} className="text-base"/>
+              </FormControl>
+              <FormDescription>
+                An optional URL for the post's header image.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        /> 
+        */}
         <div className="flex justify-end">
           <Button type="submit" size="lg" disabled={isSubmitting || !currentUser}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
